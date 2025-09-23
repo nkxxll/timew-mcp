@@ -1,316 +1,287 @@
-open Lwt.Syntax
+open Core
 open Ppx_yojson_conv_lib.Yojson_conv.Primitives
+open Composition
 
-(* MCP Protocol Version *)
-let mcp_version = "2024-11-05"
+let rpc_version = "2.0"
+let protocol_version = "2025-06-18"
 
-(* Server capabilities *)
-type server_capabilities =
-  { logging : logging_capability option [@yojson.option]
-  ; prompts : prompts_capability option [@yojson.option]
-  ; resources : resources_capability option [@yojson.option]
-  ; tools : tools_capability option [@yojson.option]
-  }
-[@@deriving yojson_of]
+module Method = struct
+  type t =
+    | Initialize
+    | NotificationsInitialized
+    | ToolsList
+    | ToolsCall
 
-and logging_capability = unit [@@deriving yojson_of]
+  let to_string = function
+    | Initialize -> "initialize"
+    | NotificationsInitialized -> "notifications/initialized"
+    | ToolsList -> "tools/list"
+    | ToolsCall -> "tools/call"
+  ;;
 
-and prompts_capability =
-  { list_changed : bool option [@yojson.option] [@yojson.key "listChanged"] }
-[@@deriving yojson_of]
+  let from_string method_string =
+    match method_string with
+    | "initialize" -> Initialize
+    | "notifications/initialized" -> NotificationsInitialized
+    | "tools/list" -> ToolsList
+    | "tools/call" -> ToolsCall
+    | _ -> failwith "method unknown"
+  ;;
+end
 
-and resources_capability =
-  { subscribe : bool option [@yojson.option]
-  ; list_changed : bool option [@yojson.option] [@yojson.key "listChanged"]
-  }
-[@@deriving yojson_of]
+type empty_obj = unit
 
-and tools_capability =
-  { list_changed : bool option [@yojson.option] [@yojson.key "listChanged"] }
-[@@deriving yojson_of]
+let empty_obj_of_yojson _empty_obj = ()
+let yojson_of_empty_obj _empty_obj = `Assoc []
 
-(* Server information *)
-type server_info =
+type info =
   { name : string
   ; version : string
   }
-[@@deriving yojson_of]
+[@@deriving yojson]
 
-(* Client capabilities *)
-type client_capabilities =
-  { experimental : string list option [@yojson.option]
-  ; sampling : sampling_capability option [@yojson.option]
+type server_tools = { list_changed : bool [@key "listChanged"] }
+[@@deriving yojson, yojson_fields]
+
+type server_capabilies =
+  { tools : server_tools
+  ; resources : empty_obj
   }
-[@@deriving of_yojson]
+[@@deriving yojson]
 
-and sampling_capability = unit [@@deriving of_yojson]
+type server_initialize_result =
+  { protocol_version : string [@key "protocolVersion"]
+  ; capabilities : server_capabilies
+  ; server_info : info [@key "serverInfo"]
+  }
+[@@deriving yojson, yojson_fields]
 
-(* Client info *)
-type client_info =
+type summary_time =
+  { type_ : string [@key "type"] (* "type" is reserved in OCaml *)
+  ; enum : string list
+  ; description : string
+  ; default : string
+  }
+[@@deriving yojson, show]
+
+let summary_time_schema =
+  { type_ = "string"
+  ; enum = [ "day"; "week" ]
+  ; description = "Time frame the summary should span currently only day or week"
+  ; default = "week"
+  }
+;;
+
+type input_schema_properties = { summary_time : summary_time } [@@deriving yojson, show]
+
+type input_schema =
+  { type_ : string [@key "type"]
+  ; properties : input_schema_properties
+  ; required : string list
+  }
+[@@deriving yojson, yojson_fields, show]
+
+type tool =
   { name : string
-  ; version : string
+  ; title : string
+  ; description : string
+  ; input_schema : input_schema [@key "inputSchema"]
   }
-[@@deriving of_yojson]
+[@@deriving yojson, yojson_fields, show]
 
-(* Initialize request from client *)
-type initialize_request =
-  { protocol_version : string [@yojson.key "protocolVersion"]
-  ; capabilities : client_capabilities
-  ; client_info : client_info [@yojson.key "clientInfo"]
-  }
-[@@deriving of_yojson]
+type server_tool_discovery_result = { tools : tool list } [@@deriving yojson, show]
 
-(* Initialize response from server *)
-type initialize_response =
-  { protocol_version : string [@yojson.key "protocolVersion"]
-  ; capabilities : server_capabilities
-  ; server_info : server_info [@yojson.key "serverInfo"]
-  }
-[@@deriving yojson_of]
-
-(* JSON-RPC error codes *)
-let invalid_request_code = -32600
-let method_not_found_code = -32601
-let invalid_params_code = -32602
-let internal_error_code = -32603
-
-(* JSON-RPC message types *)
-type jsonrpc_request =
+type server_response =
   { jsonrpc : string
-  ; id : int option [@yojson.option]
-  ; method_name : string [@yojson.key "method"]
-  ; params : string list option [@yojson.option]
+  ; id : int
+  ; result : server_initialize_result
   }
-[@@deriving of_yojson]
+[@@deriving yojson]
 
-type jsonrpc_error =
-  { code : int
-  ; message : string
-  ; data : string option [@yojson.option]
+type capabilities = { elicitation : empty_obj } [@@deriving yojson]
+
+type params =
+  { protocol_version : string [@key "protocolVersion"]
+  ; capabilities : capabilities
+  ; client_info : info [@key "clientInfo"]
   }
-[@@deriving yojson_of]
+[@@deriving yojson, yojson_fields]
 
-type jsonrpc_response =
+type client_request =
   { jsonrpc : string
-  ; id : Yojson.Safe.t option [@yojson.option]
-  ; result : Yojson.Safe.t option [@yojson.option]
-  ; error : jsonrpc_error option [@yojson.option]
+  ; id : int
+  ; method_ : string [@key "method"]
+  ; params : params
   }
-[@@deriving yojson_of]
+[@@deriving yojson, yojson_fields]
 
-(* Create server capabilities based on what your server supports *)
-let create_server_capabilities () =
-  { logging = Some ()
-  ; prompts = Some { list_changed = Some true }
-  ; resources = Some { subscribe = Some false; list_changed = Some true }
-  ; tools = Some { list_changed = Some true }
+type server_tool_discovery_response =
+  { jsonrpc : string
+  ; id : int
+  ; result : server_tool_discovery_result
   }
-;;
+[@@deriving yojson, show]
 
-(* Handle the initialize request *)
-let handle_initialize_request req =
-  (* Validate protocol version *)
-  if req.protocol_version <> mcp_version
-  then
-    Error
-      ( invalid_params_code
-      , Printf.sprintf "Unsupported protocol version: %s" req.protocol_version )
-  else (
-    let response =
-      { protocol_version = mcp_version
-      ; capabilities = create_server_capabilities ()
-      ; server_info = { name = "my-mcp-server"; version = "1.0.0" }
-      }
-    in
-    Ok response)
-;;
-
-let create_jsonrpc_response ?result ?error id =
-  let error_obj =
-    match error with
-    | Some (code, message) -> Some { code; message; data = None }
-    | None -> None
+let handle_initialize client_message ~server_info ~capabilities =
+  let json_client_request = Yojson.Safe.from_string client_message in
+  let client_request = client_request_of_yojson json_client_request in
+  let server_response : server_response =
+    { jsonrpc = rpc_version
+    ; id = client_request.id
+    ; result = { protocol_version; server_info; capabilities }
+    }
   in
-  { jsonrpc = "2.0"; id; result; error = error_obj }
+  yojson_of_server_response server_response
 ;;
 
-(* Parse JSON-RPC request with better error handling *)
-let parse_jsonrpc_request json =
-  try Ok (jsonrpc_request_of_yojson json) with
-  | Ppx_yojson_conv_lib.Yojson_conv.Of_yojson_error (exn, _) ->
-    Error (Printf.sprintf "Invalid JSON-RPC request: %s" (Printexc.to_string exn))
-  | exn ->
-    Error (Printf.sprintf "Failed to parse JSON-RPC request: %s" (Printexc.to_string exn))
+let get_method message =
+  let open Yojson.Safe.Util in
+  message |> member "method" |> to_string |> Method.from_string
 ;;
 
-(* Parse initialize request with better error handling *)
-let parse_initialize_request json =
-  try Ok (initialize_request_of_yojson json) with
-  | Ppx_yojson_conv_lib.Yojson_conv.Of_yojson_error (exn, _) ->
-    Error (Printf.sprintf "Invalid initialize request: %s" (Printexc.to_string exn))
-  | exn ->
-    Error
-      (Printf.sprintf "Failed to parse initialize request: %s" (Printexc.to_string exn))
+let get_id message =
+  let open Yojson.Safe.Util in
+  message |> member "id" |> to_int
 ;;
 
-(* Main request handler *)
-let handle_request_string request_str =
-  let* () = Lwt.return_unit in
-  try
-    let json = Yojson.Safe.from_string request_str in
-    match parse_jsonrpc_request json with
-    | Error msg ->
-      let error_response =
-        create_jsonrpc_response ~error:(invalid_request_code, msg) None
-      in
-      let response_json = yojson_of_jsonrpc_response error_response in
-      Lwt.return (Yojson.Safe.pretty_to_string response_json)
-    | Ok jsonrpc_req ->
-      (match jsonrpc_req.method_name with
-       | "initialize" ->
-         (match jsonrpc_req.params with
-          | Some params ->
-            (match parse_initialize_request params with
-             | Error msg ->
-               let error_response =
-                 create_jsonrpc_response ~error:(invalid_params_code, msg) jsonrpc_req.id
-               in
-               let response_json = yojson_of_jsonrpc_response error_response in
-               Lwt.return (Yojson.Safe.pretty_to_string response_json)
-             | Ok init_req ->
-               (match handle_initialize_request init_req with
-                | Error (code, msg) ->
-                  let error_response =
-                    create_jsonrpc_response ~error:(code, msg) jsonrpc_req.id
-                  in
-                  let response_json = yojson_of_jsonrpc_response error_response in
-                  Lwt.return (Yojson.Safe.pretty_to_string response_json)
-                | Ok init_resp ->
-                  let result = yojson_of_initialize_response init_resp in
-                  let success_response = create_jsonrpc_response ~result jsonrpc_req.id in
-                  let response_json = yojson_of_jsonrpc_response success_response in
-                  Lwt.return (Yojson.Safe.pretty_to_string response_json)))
-          | None ->
-            let error_response =
-              create_jsonrpc_response
-                ~error:(invalid_params_code, "Missing params for initialize")
-                jsonrpc_req.id
-            in
-            let response_json = yojson_of_jsonrpc_response error_response in
-            Lwt.return (Yojson.Safe.pretty_to_string response_json))
-       | method_name ->
-         let error_response =
-           create_jsonrpc_response
-             ~error:
-               (method_not_found_code, Printf.sprintf "Method not found: %s" method_name)
-             jsonrpc_req.id
-         in
-         let response_json = yojson_of_jsonrpc_response error_response in
-         Lwt.return (Yojson.Safe.string_of_json response_json))
-  with
-  | Yojson.Json_error msg ->
-    let error_response =
-      create_jsonrpc_response
-        ~error:(invalid_request_code, Printf.sprintf "Invalid JSON: %s" msg)
-        None
-    in
-    let response_json = yojson_of_jsonrpc_response error_response in
-    Lwt.return (Yojson.Safe.pretty_to_string response_json)
-  | exn ->
-    let error_response =
-      create_jsonrpc_response
-        ~error:
-          ( internal_error_code
-          , Printf.sprintf "Internal error: %s" (Printexc.to_string exn) )
-        None
-    in
-    let response_json = yojson_of_jsonrpc_response error_response in
-    Lwt.return (Yojson.Safe.pretty_to_string response_json)
-;;
-
-(* Helper function to handle notifications (requests without id) *)
-let handle_notification method_name params =
-  match method_name with
-  | "initialized" ->
-    (* Client signals that initialization is complete *)
-    Printf.printf "Client initialization complete\n%!";
-    Lwt.return_unit
-  | _ ->
-    Printf.printf "Unknown notification: %s\n%!" method_name;
-    Lwt.return_unit
-;;
-
-(* Extended handler that supports both requests and notifications *)
-let handle_message_string message_str =
-  let* () = Lwt.return_unit in
-  try
-    let json = Yojson.Safe.from_string message_str in
-    match parse_jsonrpc_request json with
-    | Error _ ->
-      (* If it's not a valid request, it might be a notification *)
-      Lwt.return None
-    | Ok jsonrpc_req ->
-      (match jsonrpc_req.id with
-       | None ->
-         (* This is a notification *)
-         let* () = handle_notification jsonrpc_req.method_name jsonrpc_req.params in
-         Lwt.return None
-       | Some _ ->
-         (* This is a request that expects a response *)
-         let* response_str = handle_request_string message_str in
-         Lwt.return (Some response_str))
-  with
-  | exn ->
-    Printf.printf "Error handling message: %s\n%!" (Printexc.to_string exn);
-    Lwt.return None
-;;
-
-(* Example usage *)
-let example_initialize_request =
-  {|
-{
+let%expect_test "get method" =
+  let messages =
+    [ {|{
   "jsonrpc": "2.0",
   "id": 1,
   "method": "initialize",
   "params": {
-    "protocolVersion": "2024-11-05",
+    "protocolVersion": "2025-06-18",
     "capabilities": {
-      "experimental": {},
-      "sampling": {}
+      "elicitation": {}
     },
     "clientInfo": {
       "name": "example-client",
       "version": "1.0.0"
     }
   }
-}
-|}
-;;
-
-let example_initialized_notification =
-  {|
-{
+  }|}
+    ; {|{
   "jsonrpc": "2.0",
-  "method": "initialized",
-  "params": {}
-}
-|}
+  "method": "notifications/initialized"
+  }|}
+    ; {|{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list"
+  }|}
+    ; {|{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "weather_current",
+    "arguments": {
+      "location": "San Francisco",
+      "units": "imperial"
+    }
+  }
+    }|}
+    ]
+  in
+  List.iter
+    messages
+    ~f:(Yojson.Safe.from_string >> get_method >> Method.to_string >> Stdio.print_endline);
+  [%expect
+    {|
+    initialize
+    notifications/initialized
+    tools/list
+    tools/call
+    |}]
 ;;
 
-let test_handshake () =
-  (* Test initialize request *)
-  let* response = handle_request_string example_initialize_request in
-  Printf.printf "Server response to initialize:\n%s\n\n" response;
-  (* Test initialized notification *)
-  let* _ = handle_message_string example_initialized_notification in
-  Printf.printf "Handled initialized notification\n";
-  Lwt.return_unit
+let%expect_test "initialize message" =
+  let server_info = { name = "timew-mcp"; version = "1.0.0" } in
+  let capabilities = { tools = { list_changed = true }; resources = () } in
+  let message =
+    {|{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-06-18",
+    "capabilities": {
+      "elicitation": {}
+    },
+    "clientInfo": {
+      "name": "example-client",
+      "version": "1.0.0"
+    }
+  }
+    }|}
+  in
+  handle_initialize message ~capabilities ~server_info
+  |> Yojson.Safe.pretty_to_string
+  |> Stdio.print_endline;
+  [%expect
+    {|
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": { "tools": { "listChanged": true }, "resources": {} },
+        "serverInfo": { "name": "timew-mcp", "version": "1.0.0" }
+      }
+    }
+    |}]
 ;;
 
-(* Example dune file content you'll need:
-   (executable
-    (public_name mcp-server)
-    (name main)
-    (libraries lwt yojson ppx_yojson_conv)
-    (preprocess (pps ppx_yojson_conv)))
-*)
+let%expect_test "parse tool" =
+  let message =
+    {|{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "tools": [
+      {
+        "name": "calculator_arithmetic",
+        "title": "Calculator",
+        "description": "Perform mathematical calculations including basic arithmetic, trigonometric functions, and algebraic operations",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "expression": {
+              "type": "string",
+              "description": "Mathematical expression to evaluate (e.g., '2 + 3 * 4', 'sin(30)', 'sqrt(16)')"
+            }
+          },
+          "required": ["expression"]
+        }
+      },
+      {
+        "name": "weather_current",
+        "title": "Weather Information",
+        "description": "Get current weather information for any location worldwide",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, address, or coordinates (latitude,longitude)"
+            },
+            "units": {
+              "type": "string",
+              "enum": ["metric", "imperial", "kelvin"],
+              "description": "Temperature units to use in response",
+              "default": "metric"
+            }
+          },
+          "required": ["location"]
+        }
+      }
+    ]
+  }
+}|}
+  in
+  let json = Yojson.Safe.from_string message in
+  let server_res = server_tool_discovery_response_of_yojson json in
+  show_server_tool_discovery_response server_res |> Stdio.print_endline;
+  [%expect {||}]
+;;

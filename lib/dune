@@ -8,8 +8,14 @@
  (inline_tests))
 
 (library
+ (name composition)
+ (public_name timew-mcp.composition)
+ (modules composition))
+
+(library
  (name timew_mcp)
  (modules timew_mcp)
- (libraries timew async core lwt)
+ (libraries timew composition async core ppx_inline_test)
  (preprocess
-  (pps ppx_yojson_conv)))
+  (pps ppx_deriving.show ppx_yojson_conv ppx_expect))
+ (inline_tests))
