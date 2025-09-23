@@ -21,8 +21,7 @@ let get_summary () =
     Error (Format.sprintf "timew export failed with exit code %d\n" n)
   | Error (`Signal n) ->
     Error (Format.sprintf "timew export failed with exit code %s\n" (Signal.to_string n))
-  | Ok _ ->
-    Ok output_string
+  | Ok _ -> Ok output_string
 ;;
 
 let%expect_test "read summary" =

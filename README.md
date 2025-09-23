@@ -9,6 +9,7 @@ My try to write a simple mcp server and access it with claude code desktop on Ma
   - [x] test
   - [x] implementation
 - [x] tool call
+- [ ] hook the timew integration
 - [ ] client capabilities are hard-coded empty
 
 ## Useful resources

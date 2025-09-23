@@ -180,19 +180,22 @@ let handle_tool_call client_message =
         ; message = "invalid argument for summaryTime: " ^ time_frame
         }
     else (
-      let response_content =
-        [ { type_ = "text"
-          ; text = Printf.sprintf "summary for the %s will be implemented" time_frame
+      let json_summary_res = Timew.get_summary () in
+      match json_summary_res with
+      | Ok json_summary ->
+        let response_content =
+          [ { type_ = "text"; text = "The summary returned this JSON: " ^ json_summary } ]
+        in
+        let server_response : server_tool_call_response =
+          { jsonrpc = rpc_version
+          ; id = client_request.id
+          ; result = { content = response_content }
           }
-        ]
-      in
-      let server_response : server_tool_call_response =
-        { jsonrpc = rpc_version
-        ; id = client_request.id
-        ; result = { content = response_content }
-        }
-      in
-      Ok (yojson_of_server_tool_call_response server_response)))
+        in
+        Ok (yojson_of_server_tool_call_response server_response)
+      | Error err ->
+        Error
+          { code = -32603; message = "Internal server error while retrieving the data" ^ err }))
   else (* Handle unknown tool *)
     Error { code = -32601 (* Method not found *); message = "Unknown tool: " ^ tool_name }
 ;;
@@ -588,6 +591,8 @@ let%expect_test "failed initialize" =
   |> handle_message ~capabilities ~server_info
   |> function
   | Some m -> Stdio.print_endline m
-  | None -> Stdio.print_endline "error no message";
-  [%expect {| {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true},"resources":{}},"serverInfo":{"name":"timew-mcp","version":"1.0.0"}}} |}]
+  | None ->
+    Stdio.print_endline "error no message";
+    [%expect
+      {| {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true},"resources":{}},"serverInfo":{"name":"timew-mcp","version":"1.0.0"}}} |}]
 ;;
