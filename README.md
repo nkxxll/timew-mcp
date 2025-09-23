@@ -8,7 +8,8 @@ My try to write a simple mcp server and access it with claude code desktop on Ma
 - [x] tool discovery
   - [x] test
   - [x] implementation
-- [ ] tool call
+- [x] tool call
+- [ ] client capabilities are hard-coded empty
 
 ## Useful resources
 
