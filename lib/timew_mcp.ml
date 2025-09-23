@@ -123,6 +123,66 @@ type server_tool_discovery_response =
   }
 [@@deriving yojson, show]
 
+type summary_time_arguments = { summary_time : string [@key "summaryTime"] }
+[@@deriving yojson, show]
+
+type tool_call_params =
+  { name : string
+  ; arguments : summary_time_arguments
+  }
+[@@deriving yojson, show]
+
+type client_tool_call_request =
+  { jsonrpc : string
+  ; id : int
+  ; method_ : string [@key "method"]
+  ; params : tool_call_params
+  }
+[@@deriving yojson, show]
+
+type tool_call_content =
+  { type_ : string [@key "type"]
+  ; text : string
+  }
+[@@deriving yojson, show]
+
+type tool_call_result = { content : tool_call_content list } [@@deriving yojson, show]
+
+type server_tool_call_response =
+  { jsonrpc : string
+  ; id : int
+  ; result : tool_call_result
+  }
+[@@deriving yojson, show]
+
+let handle_tool_call client_message =
+  let json_client_request = Yojson.Safe.from_string client_message in
+  let client_request = client_tool_call_request_of_yojson json_client_request in
+  let tool_name = client_request.params.name in
+  if String.equal tool_name "summaryTime"
+  then (
+    let args = client_request.params.arguments in
+    let time_frame = args.summary_time in
+    if not (String.equal time_frame "day" || String.equal time_frame "week")
+    then failwith ("invalid argument for summaryTime: " ^ time_frame)
+    else (
+      let response_content =
+        [ { type_ = "text"
+          ; text = Printf.sprintf "summary for the %s will be implemented" time_frame
+          }
+        ]
+      in
+      let server_response : server_tool_call_response =
+        { jsonrpc = rpc_version
+        ; id = client_request.id
+        ; result = { content = response_content }
+        }
+      in
+      yojson_of_server_tool_call_response server_response))
+  else (* Handle unknown tool *)
+    failwith ("Unknown tool: " ^ tool_name)
+;;
+
 let handle_initialize client_message ~server_info ~capabilities =
   let json_client_request = Yojson.Safe.from_string client_message in
   let client_request = client_request_of_yojson json_client_request in
@@ -283,5 +343,67 @@ let%expect_test "parse tool" =
   let json = Yojson.Safe.from_string message in
   let server_res = server_tool_discovery_response_of_yojson json in
   show_server_tool_discovery_response server_res |> Stdio.print_endline;
-  [%expect {||}]
+  [%expect
+    {|
+    { Timew_mcp.jsonrpc = "2.0"; id = 2;
+      result =
+      { Timew_mcp.tools =
+        [{ Timew_mcp.name = "calculator_arithmetic"; title = "Calculator";
+           description =
+           "Perform mathematical calculations including basic arithmetic, trigonometric functions, and algebraic operations";
+           input_schema =
+           { Timew_mcp.type_ = "object";
+             properties =
+             { Timew_mcp.summary_time =
+               { Timew_mcp.type_ = "string"; enum = ["day"; "week"];
+                 description = "this is a desc"; default = "week" }
+               };
+             required = ["summaryTime"] }
+           };
+          { Timew_mcp.name = "weather_current"; title = "Weather Information";
+            description =
+            "Get current weather information for any location worldwide";
+            input_schema =
+            { Timew_mcp.type_ = "object";
+              properties =
+              { Timew_mcp.summary_time =
+                { Timew_mcp.type_ = "string"; enum = ["day"; "week"];
+                  description = "some things that should be here";
+                  default = "week" }
+                };
+              required = ["summaryTime"] }
+            }
+          ]
+        }
+      }
+    |}]
+;;
+
+let%expect_test "tool call message" =
+  let message =
+    {|{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "summaryTime",
+    "arguments": {
+      "summaryTime": "day"
+    }
+  }
+    }|}
+  in
+  handle_tool_call message |> Yojson.Safe.pretty_to_string |> Stdio.print_endline;
+  [%expect
+    {|
+    {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+        "content": [
+          { "type": "text", "text": "summary for the day will be implemented" }
+        ]
+      }
+    }
+    |}]
 ;;
