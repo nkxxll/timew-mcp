@@ -57,7 +57,7 @@ type server_initialize_result =
 [@@deriving yojson, yojson_fields]
 
 type summary_time =
-  { type_ : string [@key "type"] (* "type" is reserved in OCaml *)
+  { type_ : string [@key "type"]
   ; enum : string list
   ; description : string
   ; default : string
@@ -72,7 +72,8 @@ let summary_time_schema =
   }
 ;;
 
-type input_schema_properties = { summary_time : summary_time } [@@deriving yojson, show]
+type input_schema_properties = { summary_time : summary_time [@key "summaryTime"] }
+[@@deriving yojson, yojson_fields, show]
 
 type input_schema =
   { type_ : string [@key "type"]
@@ -247,12 +248,14 @@ let%expect_test "parse tool" =
         "inputSchema": {
           "type": "object",
           "properties": {
-            "expression": {
+            "summaryTime": {
               "type": "string",
-              "description": "Mathematical expression to evaluate (e.g., '2 + 3 * 4', 'sin(30)', 'sqrt(16)')"
+              "enum": ["day", "week"],
+              "description": "this is a desc",
+              "default": "week"
             }
           },
-          "required": ["expression"]
+          "required": ["summaryTime"]
         }
       },
       {
@@ -262,23 +265,20 @@ let%expect_test "parse tool" =
         "inputSchema": {
           "type": "object",
           "properties": {
-            "location": {
+            "summaryTime": {
               "type": "string",
-              "description": "City name, address, or coordinates (latitude,longitude)"
-            },
-            "units": {
-              "type": "string",
-              "enum": ["metric", "imperial", "kelvin"],
-              "description": "Temperature units to use in response",
-              "default": "metric"
+              "enum": ["day", "week"],
+              "description": "some things that should be here",
+              "default": "week"
             }
           },
-          "required": ["location"]
+          "required": ["summaryTime"]
         }
       }
     ]
   }
-}|}
+}
+|}
   in
   let json = Yojson.Safe.from_string message in
   let server_res = server_tool_discovery_response_of_yojson json in

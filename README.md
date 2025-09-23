@@ -5,9 +5,11 @@ My try to write a simple mcp server and access it with claude code desktop on Ma
 ## TODO
 
 - [x] write the handshake
-- [ ] tool discovery
-  - [ ] test
-  - [ ] implementation
+- [x] tool discovery
+  - [x] test
+  - [x] implementation
+- [ ] tool call
+
 ## Useful resources
 
 - `tail -n 20 -f ~/Library/Logs/Claude/mcp*.log`
