@@ -205,6 +205,38 @@ let get_id message =
   message |> member "id" |> to_int
 ;;
 
+let handle_tools_list message =
+  let id = get_id message in
+  let summary_tool =
+    { name = "summaryTime"
+    ; title = "Time summary"
+    ; description = "Get a summary of the tracked time for a given period"
+    ; input_schema =
+        { type_ = "object"
+        ; properties = { summary_time = summary_time_schema }
+        ; required = [ "summaryTime" ]
+        }
+    }
+  in
+  let response : server_tool_discovery_response =
+    { jsonrpc = rpc_version; id; result = { tools = [ summary_tool ] } }
+  in
+  yojson_of_server_tool_discovery_response response
+;;
+
+let handle_message message ~server_info ~capabilities =
+  let method_ = get_method message in
+  match method_ with
+  | Initialize ->
+    let client_message_string = Yojson.Safe.to_string message in
+    Some (handle_initialize client_message_string ~server_info ~capabilities)
+  | ToolsCall ->
+    let client_message_string = Yojson.Safe.to_string message in
+    Some (handle_tool_call client_message_string)
+  | ToolsList -> Some (handle_tools_list message)
+  | NotificationsInitialized -> None
+;;
+
 let%expect_test "get method" =
   let messages =
     [ {|{
@@ -407,3 +439,101 @@ let%expect_test "tool call message" =
     }
     |}]
 ;;
+
+let%expect_test "handle message" =
+  let server_info = { name = "timew-mcp"; version = "1.0.0" } in
+  let capabilities = { tools = { list_changed = true }; resources = () } in
+  let messages =
+    [ {|{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-06-18",
+    "capabilities": {
+      "elicitation": {}
+    },
+    "clientInfo": {
+      "name": "example-client",
+      "version": "1.0.0"
+    }
+  }
+    }|}
+    ; {|{
+  "jsonrpc": "2.0",
+  "method": "notifications/initialized"
+    }|}
+    ; {|{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list"
+    }|}
+    ; {|{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "summaryTime",
+    "arguments": {
+      "summaryTime": "week"
+    }
+  }
+    }|}
+    ]
+  in
+  List.iter messages ~f:(fun msg_string ->
+    let message = Yojson.Safe.from_string msg_string in
+    let response = handle_message message ~server_info ~capabilities in
+    match response with
+    | Some response_json ->
+      response_json |> Yojson.Safe.pretty_to_string |> Stdio.print_endline
+    | None -> Stdio.print_endline "Notification, no response");
+  [%expect
+    {|
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": { "tools": { "listChanged": true }, "resources": {} },
+        "serverInfo": { "name": "timew-mcp", "version": "1.0.0" }
+      }
+    }
+    Notification, no response
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "tools": [
+          {
+            "name": "summaryTime",
+            "title": "Time summary",
+            "description": "Get a summary of the tracked time for a given period",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "summaryTime": {
+                  "type": "string",
+                  "enum": [ "day", "week" ],
+                  "description": "Time frame the summary should span currently only day or week",
+                  "default": "week"
+                }
+              },
+              "required": [ "summaryTime" ]
+            }
+          }
+        ]
+      }
+    }
+    {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+        "content": [
+          { "type": "text", "text": "summary for the week will be implemented" }
+        ]
+      }
+    }
+    |}]
+;;
+
