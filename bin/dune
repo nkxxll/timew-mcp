@@ -1,0 +1,4 @@
+(executable
+ (public_name timew-mcp)
+ (name main)
+ (libraries timew_mcp))

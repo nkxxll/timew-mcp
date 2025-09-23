@@ -1,0 +1,15 @@
+(library
+ (name timew)
+ (public_name timew-mcp.timew)
+ (modules timew)
+ (libraries ppx_inline_test yojson core_unix)
+ (preprocess
+  (pps ppx_deriving.show ppx_expect ppx_yojson_conv))
+ (inline_tests))
+
+(library
+ (name timew_mcp)
+ (modules timew_mcp)
+ (libraries timew async core lwt)
+ (preprocess
+  (pps ppx_yojson_conv)))
