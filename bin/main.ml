@@ -19,7 +19,7 @@ let () =
   let my_handler (msg : string) : string option =
     try
       let message = Yojson.Safe.from_string msg in
-      handle_message message ~server_info ~capabilities
+      handle_message message ~server_info ~capabilities ~tool_function:Timew.get_summary
     with
     | Yojson.Json_error err ->
       let error_response : server_error_response =
@@ -50,3 +50,4 @@ let () =
   in
   serve_loop ~handler:my_handler
 ;;
+

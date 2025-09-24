@@ -165,7 +165,7 @@ type server_error_response =
   }
 [@@deriving yojson_of]
 
-let handle_tool_call client_message =
+let handle_tool_call client_message ~tool_function =
   let json_client_request = Yojson.Safe.from_string client_message in
   let client_request = client_tool_call_request_of_yojson json_client_request in
   let tool_name = client_request.params.name in
@@ -180,7 +180,7 @@ let handle_tool_call client_message =
         ; message = "invalid argument for summaryTime: " ^ time_frame
         }
     else (
-      let json_summary_res = Timew.get_summary () in
+      let json_summary_res = tool_function () in
       match json_summary_res with
       | Ok json_summary ->
         let response_content =
@@ -247,7 +247,7 @@ let handle_tools_list message =
   yojson_of_server_tool_discovery_response response
 ;;
 
-let handle_message message ~server_info ~capabilities =
+let handle_message message ~server_info ~capabilities ~tool_function =
   let id =
     try Some (get_id message) with
     | _ -> None
@@ -274,7 +274,7 @@ let handle_message message ~server_info ~capabilities =
        Some (Yojson.Safe.to_string response)
      | ToolsCall ->
        let client_message_string = Yojson.Safe.to_string message in
-       (match handle_tool_call client_message_string with
+       (match handle_tool_call client_message_string ~tool_function with
         | Ok response -> Some (Yojson.Safe.to_string response)
         | Error err -> Some (create_error_response err.code err.message)))
 ;;
@@ -512,7 +512,10 @@ let%expect_test "handle message" =
   in
   List.iter messages ~f:(fun msg_string ->
     let message = Yojson.Safe.from_string msg_string in
-    let response = handle_message message ~server_info ~capabilities in
+    let response =
+      handle_message message ~server_info ~capabilities ~tool_function:(fun () ->
+        Ok "test tool response")
+    in
     match response with
     | Some response_json_string ->
       Yojson.Safe.from_string response_json_string
@@ -561,7 +564,10 @@ let%expect_test "handle message" =
       "id": 3,
       "result": {
         "content": [
-          { "type": "text", "text": "summary for the week will be implemented" }
+          {
+            "type": "text",
+            "text": "The summary returned this JSON: test tool response"
+          }
         ]
       }
     }
@@ -570,7 +576,10 @@ let%expect_test "handle message" =
       "id": 4,
       "result": {
         "content": [
-          { "type": "text", "text": "summary for the day will be implemented" }
+          {
+            "type": "text",
+            "text": "The summary returned this JSON: test tool response"
+          }
         ]
       }
     }
@@ -590,11 +599,12 @@ let%expect_test "failed initialize" =
   in
   message
   |> Yojson.Safe.from_string
-  |> handle_message ~capabilities ~server_info
+  |> handle_message ~capabilities ~server_info ~tool_function:(fun () ->
+    Ok "test tool response")
   |> function
   | Some m -> Stdio.print_endline m
   | None ->
     Stdio.print_endline "error no message";
-    [%expect
-      {| {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true},"resources":{}},"serverInfo":{"name":"timew-mcp","version":"1.0.0"}}} |}]
+    [%expect.unreachable];
+  [%expect {| {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true},"resources":{}},"serverInfo":{"name":"timew-mcp","version":"1.0.0"}}} |}]
 ;;

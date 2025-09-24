@@ -21,6 +21,7 @@ Currently it works when configured right.
 - [x] hook the timew integration
 - [ ] client capabilities are hard-coded empty
 - [ ] error handling is a mess
+- [ ] fix too many arguments for the handler function
 
 ## Useful resources
 
