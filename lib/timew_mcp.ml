@@ -195,7 +195,9 @@ let handle_tool_call client_message =
         Ok (yojson_of_server_tool_call_response server_response)
       | Error err ->
         Error
-          { code = -32603; message = "Internal server error while retrieving the data" ^ err }))
+          { code = -32603
+          ; message = "Internal server error while retrieving the data" ^ err
+          }))
   else (* Handle unknown tool *)
     Error { code = -32601 (* Method not found *); message = "Unknown tool: " ^ tool_name }
 ;;

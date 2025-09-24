@@ -5,11 +5,11 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github nkxxll/timew-mcp))
 
-(authors "Author Name <author@example.com>")
+(authors "Niklas Kirschall <niki.nice1203@gmail.com>")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "Niklas Kirschall <niki.nice1203@gmail.com>")
 
 (license LICENSE)
 
@@ -17,10 +17,20 @@
 
 (package
  (name timew-mcp)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml)
+ (synopsis "timew mcp server")
+ (description "Tiny timew mcp server for learing the mcp protocol")
+ (depends
+  ocaml
+  async
+  core_unix
+  lwt
+  (ocaml-lsp-server :with-dev)
+  (ocamlformat :with-dev)
+  ppx_deriving
+  ppx_expect
+  ppx_inline_test
+  ppx_yojson_conv)
  (tags
-  ("add topics" "to describe" your project)))
+  ("mcp" "learing" your project)))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
