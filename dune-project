@@ -21,9 +21,8 @@
  (description "Tiny timew mcp server for learing the mcp protocol")
  (depends
   ocaml
-  async
   core_unix
-  lwt
+  logs
   (ocaml-lsp-server :with-dev)
   (ocamlformat :with-dev)
   ppx_deriving

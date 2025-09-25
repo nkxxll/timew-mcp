@@ -12,9 +12,8 @@ bug-reports: "https://github.com/nkxxll/timew-mcp/issues"
 depends: [
   "dune" {>= "3.19"}
   "ocaml"
-  "async"
   "core_unix"
-  "lwt"
+  "logs"
   "ocaml-lsp-server" {with-dev}
   "ocamlformat" {with-dev}
   "ppx_deriving"

@@ -2,7 +2,7 @@
  (name timew)
  (public_name timew-mcp.timew)
  (modules timew)
- (libraries ppx_inline_test yojson core_unix)
+ (libraries ppx_inline_test yojson core_unix logs)
  (preprocess
   (pps ppx_deriving.show ppx_expect ppx_yojson_conv))
  (inline_tests))
@@ -15,7 +15,7 @@
 (library
  (name timew_mcp)
  (modules timew_mcp)
- (libraries timew composition async core ppx_inline_test)
+ (libraries timew composition core ppx_inline_test)
  (preprocess
   (pps ppx_deriving.show ppx_yojson_conv ppx_expect))
  (inline_tests))

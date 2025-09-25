@@ -1,4 +1,4 @@
 (executable
  (public_name timew-mcp)
  (name main)
- (libraries timew_mcp))
+ (libraries timew_mcp logs logs.fmt))

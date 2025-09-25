@@ -14,6 +14,10 @@ let rec serve_loop ~handler =
 ;;
 
 let () =
+  (* configure reporter: log to stderr with nice formatting *)
+  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_level (Some Logs.Info);
+  (* show Info and above *)
   let server_info = { name = "timew-mcp"; version = "1.0.0" } in
   let capabilities = { tools = { list_changed = true }; resources = () } in
   let my_handler (msg : string) : string option =
