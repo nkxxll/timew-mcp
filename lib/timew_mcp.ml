@@ -1,169 +1,5 @@
+open Types
 open Core
-open Ppx_yojson_conv_lib.Yojson_conv.Primitives
-
-let rpc_version = "2.0"
-let protocol_version = "2025-06-18"
-
-module Method = struct
-  type t =
-    | Initialize
-    | NotificationsInitialized
-    | ToolsList
-    | ToolsCall
-
-  let to_string = function
-    | Initialize -> "initialize"
-    | NotificationsInitialized -> "notifications/initialized"
-    | ToolsList -> "tools/list"
-    | ToolsCall -> "tools/call"
-  ;;
-
-  let from_string method_string =
-    match method_string with
-    | "initialize" -> Ok Initialize
-    | "notifications/initialized" -> Ok NotificationsInitialized
-    | "tools/list" -> Ok ToolsList
-    | "tools/call" -> Ok ToolsCall
-    | _ -> Error ("unknown method: " ^ method_string)
-  ;;
-end
-
-type empty_obj = unit
-
-let empty_obj_of_yojson _empty_obj = ()
-let yojson_of_empty_obj _empty_obj = `Assoc []
-
-type info =
-  { name : string
-  ; version : string
-  }
-[@@deriving yojson]
-
-type server_tools = { list_changed : bool [@key "listChanged"] }
-[@@deriving yojson, yojson_fields]
-
-type server_capabilies =
-  { tools : server_tools
-  ; resources : empty_obj
-  }
-[@@deriving yojson]
-
-type server_initialize_result =
-  { protocol_version : string [@key "protocolVersion"]
-  ; capabilities : server_capabilies
-  ; server_info : info [@key "serverInfo"]
-  }
-[@@deriving yojson, yojson_fields]
-
-type summary_time =
-  { type_ : string [@key "type"]
-  ; enum : string list
-  ; description : string
-  ; default : string
-  }
-[@@deriving yojson, show]
-
-let summary_time_schema =
-  { type_ = "string"
-  ; enum = [ "day"; "week" ]
-  ; description = "Time frame the summary should span currently only day or week"
-  ; default = "week"
-  }
-;;
-
-type input_schema_properties = { summary_time : summary_time [@key "summaryTime"] }
-[@@deriving yojson, yojson_fields, show]
-
-type input_schema =
-  { type_ : string [@key "type"]
-  ; properties : input_schema_properties
-  ; required : string list
-  }
-[@@deriving yojson, yojson_fields, show]
-
-type tool =
-  { name : string
-  ; title : string
-  ; description : string
-  ; input_schema : input_schema [@key "inputSchema"]
-  }
-[@@deriving yojson, yojson_fields, show]
-
-type server_tool_discovery_result = { tools : tool list } [@@deriving yojson, show]
-
-type server_response =
-  { jsonrpc : string
-  ; id : int
-  ; result : server_initialize_result
-  }
-[@@deriving yojson]
-
-type params =
-  { protocol_version : string [@key "protocolVersion"]
-  ; capabilities : empty_obj
-  ; client_info : info [@key "clientInfo"]
-  }
-[@@deriving yojson, yojson_fields]
-
-type client_request =
-  { jsonrpc : string
-  ; id : int
-  ; method_ : string [@key "method"]
-  ; params : params
-  }
-[@@deriving yojson, yojson_fields]
-
-type server_tool_discovery_response =
-  { jsonrpc : string
-  ; id : int
-  ; result : server_tool_discovery_result
-  }
-[@@deriving yojson, show]
-
-type summary_time_arguments = { summary_time : string [@key "summaryTime"] }
-[@@deriving yojson, show]
-
-type tool_call_params =
-  { name : string
-  ; arguments : summary_time_arguments
-  }
-[@@deriving yojson, show]
-
-type client_tool_call_request =
-  { jsonrpc : string
-  ; id : int
-  ; method_ : string [@key "method"]
-  ; params : tool_call_params
-  }
-[@@deriving yojson, show]
-
-type tool_call_content =
-  { type_ : string [@key "type"]
-  ; text : string
-  }
-[@@deriving yojson, show]
-
-type tool_call_result = { content : tool_call_content list } [@@deriving yojson, show]
-
-type server_tool_call_response =
-  { jsonrpc : string
-  ; id : int
-  ; result : tool_call_result
-  }
-[@@deriving yojson, show]
-
-type response_error =
-  { code : int
-  ; message : string
-  }
-[@@deriving yojson_of]
-
-type server_error_response =
-  { jsonrpc : string
-  ; id : int option
-  ; error : response_error
-  }
-[@@deriving yojson_of]
 
 let handle_tool_call client_message ~tool_function =
   let json_client_request = Yojson.Safe.from_string client_message in
@@ -176,7 +12,7 @@ let handle_tool_call client_message ~tool_function =
     if not (String.equal time_frame "day" || String.equal time_frame "week")
     then
       Error
-        { code = -32602 (* Invalid params *)
+        { Mcp_error.code = InvalidParams (* Invalid params *)
         ; message = "invalid argument for summaryTime: " ^ time_frame
         }
     else (
@@ -195,11 +31,10 @@ let handle_tool_call client_message ~tool_function =
         Ok (yojson_of_server_tool_call_response server_response)
       | Error err ->
         Error
-          { code = -32603
+          { Mcp_error.code = ServerError
           ; message = "Internal server error while retrieving the data" ^ err
           }))
-  else (* Handle unknown tool *)
-    Error { code = -32601 (* Method not found *); message = "Unknown tool: " ^ tool_name }
+  else Error { Mcp_error.code = MethodNotFound; message = "Unknown tool: " ^ tool_name }
 ;;
 
 let handle_initialize client_message ~server_info ~capabilities =
@@ -214,22 +49,9 @@ let handle_initialize client_message ~server_info ~capabilities =
   yojson_of_server_response server_response
 ;;
 
-let get_method message =
-  let open Yojson.Safe.Util in
-  try
-    let method_str = message |> member "method" |> to_string in
-    Method.from_string method_str
-  with
-  | _ -> Error "missing or invalid 'method' field"
-;;
-
-let get_id message =
-  let open Yojson.Safe.Util in
-  message |> member "id" |> to_int
-;;
-
-let handle_tools_list message =
-  let id = get_id message in
+let handle_tools_list client_message =
+  let message = Yojson.Safe.from_string client_message in
+  let id = Server.get_id message in
   let summary_tool =
     { name = "summaryTime"
     ; title = "Time summary"
@@ -247,36 +69,37 @@ let handle_tools_list message =
   yojson_of_server_tool_discovery_response response
 ;;
 
-let handle_message message ~server_info ~capabilities ~tool_function =
-  let id =
-    try Some (get_id message) with
-    | _ -> None
-  in
-  let create_error_response code message =
-    let error_response : server_error_response =
-      { jsonrpc = rpc_version; id; error = { code; message } }
-    in
-    yojson_of_server_error_response error_response |> Yojson.Safe.to_string
-  in
-  match get_method message with
-  | Error msg -> Some (create_error_response (-32601) msg) (* Method not found *)
-  | Ok method_ ->
-    (match method_ with
-     | NotificationsInitialized -> None
-     | Initialize ->
-       let client_message_string = Yojson.Safe.to_string message in
-       let response =
-         handle_initialize client_message_string ~server_info ~capabilities
-       in
-       Some (Yojson.Safe.to_string response)
-     | ToolsList ->
-       let response = handle_tools_list message in
-       Some (Yojson.Safe.to_string response)
-     | ToolsCall ->
-       let client_message_string = Yojson.Safe.to_string message in
-       (match handle_tool_call client_message_string ~tool_function with
-        | Ok response -> Some (Yojson.Safe.to_string response)
-        | Error err -> Some (create_error_response err.code err.message)))
+let on_initialize_handler client_message ~server_info ~capabilities =
+  try Ok (handle_initialize client_message ~server_info ~capabilities |> Yojson.Safe.to_string) with
+  | exn ->
+    Error
+      (Mcp_error.create
+         ParseError
+         ("Failed to parse initialize request: " ^ Exn.to_string exn))
+;;
+
+let on_notification_handler (_ : string) = Ok ""
+
+let on_toollist_handler client_message =
+  try Ok (handle_tools_list client_message |> Yojson.Safe.to_string) with
+  | exn ->
+    Error
+      (Mcp_error.create
+         ParseError
+         ("Failed to parse tools/list request: " ^ Exn.to_string exn))
+;;
+
+let on_toolcall_handler ~tool_function client_message =
+  try
+    match handle_tool_call client_message ~tool_function with
+    | Ok response_yojson -> Ok (Yojson.Safe.to_string response_yojson)
+    | Error e -> Error e
+  with
+  | exn ->
+    Error
+      (Mcp_error.create
+         ParseError
+         ("Failed to parse tool/call request: " ^ Exn.to_string exn))
 ;;
 
 let%expect_test "get method" =
@@ -321,7 +144,7 @@ let%expect_test "get method" =
   in
   List.iter messages ~f:(fun msg ->
     let json = Yojson.Safe.from_string msg in
-    match get_method json with
+    match Server.get_method json with
     | Ok m -> Method.to_string m |> Stdio.print_endline
     | Error e -> Stdio.print_endline e);
   [%expect
@@ -421,29 +244,31 @@ let%expect_test "parse tool" =
   show_server_tool_discovery_response server_res |> Stdio.print_endline;
   [%expect
     {|
-    { Timew_mcp.jsonrpc = "2.0"; id = 2;
+    { Timew_mcp.Types.jsonrpc = "2.0"; id = 2;
       result =
-      { Timew_mcp.tools =
-        [{ Timew_mcp.name = "calculator_arithmetic"; title = "Calculator";
+      { Timew_mcp.Types.tools =
+        [{ Timew_mcp.Types.name = "calculator_arithmetic";
+           title = "Calculator";
            description =
            "Perform mathematical calculations including basic arithmetic, trigonometric functions, and algebraic operations";
            input_schema =
-           { Timew_mcp.type_ = "object";
+           { Timew_mcp.Types.type_ = "object";
              properties =
-             { Timew_mcp.summary_time =
-               { Timew_mcp.type_ = "string"; enum = ["day"; "week"];
+             { Timew_mcp.Types.summary_time =
+               { Timew_mcp.Types.type_ = "string"; enum = ["day"; "week"];
                  description = "this is a desc"; default = "week" }
                };
              required = ["summaryTime"] }
            };
-          { Timew_mcp.name = "weather_current"; title = "Weather Information";
+          { Timew_mcp.Types.name = "weather_current";
+            title = "Weather Information";
             description =
             "Get current weather information for any location worldwide";
             input_schema =
-            { Timew_mcp.type_ = "object";
+            { Timew_mcp.Types.type_ = "object";
               properties =
-              { Timew_mcp.summary_time =
-                { Timew_mcp.type_ = "string"; enum = ["day"; "week"];
+              { Timew_mcp.Types.summary_time =
+                { Timew_mcp.Types.type_ = "string"; enum = ["day"; "week"];
                   description = "some things that should be here";
                   default = "week" }
                 };
@@ -455,9 +280,18 @@ let%expect_test "parse tool" =
     |}]
 ;;
 
-let%expect_test "handle message" =
+let%expect_test "server handle_request" =
   let server_info = { name = "timew-mcp"; version = "1.0.0" } in
   let capabilities = { tools = { list_changed = true }; resources = () } in
+  let tool_function () = Ok "test tool response" in
+  let handlers : Server.handlers =
+    { on_initialize = on_initialize_handler
+    ; on_notification = on_notification_handler
+    ; on_toollist = on_toollist_handler
+    ; on_toolcall = on_toolcall_handler ~tool_function
+    }
+  in
+  let server = Server.create ~handlers ~server_info ~server_capabilities:capabilities in
   let messages =
     [ {|{
   "jsonrpc": "2.0",
@@ -511,17 +345,25 @@ let%expect_test "handle message" =
     ]
   in
   List.iter messages ~f:(fun msg_string ->
-    let message = Yojson.Safe.from_string msg_string in
-    let response =
-      handle_message message ~server_info ~capabilities ~tool_function:(fun () ->
-        Ok "test tool response")
-    in
-    match response with
-    | Some response_json_string ->
-      Yojson.Safe.from_string response_json_string
+    match Server.handle_request server msg_string with
+    | Ok response_json_string ->
+      if response_json_string = ""
+      then Stdio.print_endline "Notification, no response"
+      else
+        Yojson.Safe.from_string response_json_string
+        |> Yojson.Safe.pretty_to_string
+        |> Stdio.print_endline
+    | Error err ->
+      let id =
+        try Some (Yojson.Safe.from_string msg_string |> Server.get_id) with
+        | _ -> None
+      in
+      let error_response : server_error_response =
+        { jsonrpc = rpc_version; id; error = err }
+      in
+      yojson_of_server_error_response error_response
       |> Yojson.Safe.pretty_to_string
-      |> Stdio.print_endline
-    | None -> Stdio.print_endline "Notification, no response");
+      |> Stdio.print_endline);
   [%expect
     {|
     {
@@ -586,25 +428,10 @@ let%expect_test "handle message" =
     {
       "jsonrpc": "2.0",
       "id": 6,
-      "error": { "code": -32601, "message": "unknown method: invalidMethod" }
+      "error": {
+        "code": -32601,
+        "message": "Method could not be found: unknown method: invalidMethod."
+      }
     }
     |}]
-;;
-
-let%expect_test "failed initialize" =
-  let server_info = { name = "timew-mcp"; version = "1.0.0" } in
-  let capabilities = { tools = { list_changed = true }; resources = () } in
-  let message =
-    {|{"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"claude-ai","version":"0.1.0"}},"jsonrpc":"2.0","id":0}|}
-  in
-  message
-  |> Yojson.Safe.from_string
-  |> handle_message ~capabilities ~server_info ~tool_function:(fun () ->
-    Ok "test tool response")
-  |> function
-  | Some m -> Stdio.print_endline m
-  | None ->
-    Stdio.print_endline "error no message";
-    [%expect.unreachable];
-  [%expect {| {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true},"resources":{}},"serverInfo":{"name":"timew-mcp","version":"1.0.0"}}} |}]
 ;;
