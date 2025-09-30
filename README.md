@@ -20,8 +20,10 @@ Currently it works when configured right.
 - [x] tool call
 - [x] hook the timew integration
 - [ ] client capabilities are hard-coded empty
-- [ ] error handling is a mess
-- [ ] fix too many arguments for the handler function
+- [x] error handling is a mess (is better now)
+- [x] fix too many arguments for the handler function
+- [ ] fix that the json is parsed 3 times interface should be string -> json \[handlers ... stuff
+      ... tools\] -> json -> string
 
 ## Useful resources
 

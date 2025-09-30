@@ -21,12 +21,14 @@ let () =
   (* show Info and above *)
   let server_info = { name = "timew-mcp"; version = "1.0.0" } in
   let capabilities = { tools = { list_changed = true }; resources = () } in
-  let tool_function () = Timew.get_summary () in
+  let summary_handler = create_summary_time_handler in
+  let tool_handlers = [ "summaryTime", summary_handler ] in
+  let on_toolcall_handler = on_toolcall_handler_wrapper ~tool_handlers in
   let handlers : Server.handlers =
     { on_initialize = on_initialize_handler
     ; on_notification = on_notification_handler
     ; on_toollist = on_toollist_handler
-    ; on_toolcall = on_toolcall_handler ~tool_function
+    ; on_toolcall = on_toolcall_handler
     }
   in
   let server = Server.create ~handlers ~server_info ~server_capabilities:capabilities in

@@ -39,6 +39,4 @@ type t =
   }
 [@@deriving yojson_of]
 
-let create (code: ErrorCode.t) (message: string): t = 
-  { code; message }
-
+let create (code : ErrorCode.t) (message : string) : t = { code; message }

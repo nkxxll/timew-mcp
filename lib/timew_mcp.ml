@@ -1,40 +1,50 @@
 open Mcp_types
+open Timew
 open Core
 
-let handle_tool_call client_message ~tool_function =
-  let json_client_request = Yojson.Safe.from_string client_message in
-  let client_request = client_tool_call_request_of_yojson json_client_request in
-  let tool_name = client_request.params.name in
-  if String.equal tool_name "summaryTime"
-  then (
-    let args = client_request.params.arguments in
+let create_summary_time_handler =
+  fun (message : string) ->
+  try
+    let json = Yojson.Safe.from_string message in
+    let request = client_tool_call_request_of_yojson json in
+    let args = request.params.arguments in
     let time_frame = args.summary_time in
     if not (String.equal time_frame "day" || String.equal time_frame "week")
-    then
-      Error
-        { Mcp_error.code = InvalidParams (* Invalid params *)
-        ; message = "invalid argument for summaryTime: " ^ time_frame
-        }
+    then Error ("invalid argument for summaryTime: " ^ time_frame)
     else (
-      let json_summary_res = tool_function () in
-      match json_summary_res with
-      | Ok json_summary ->
-        let response_content =
-          [ { type_ = "text"; text = "The summary returned this JSON: " ^ json_summary } ]
-        in
-        let server_response : server_tool_call_response =
-          { jsonrpc = rpc_version
-          ; id = client_request.id
-          ; result = { content = response_content }
-          }
-        in
-        Ok (yojson_of_server_tool_call_response server_response)
-      | Error err ->
-        Error
-          { Mcp_error.code = ServerError
-          ; message = "Internal server error while retrieving the data" ^ err
-          }))
-  else Error { Mcp_error.code = MethodNotFound; message = "Unknown tool: " ^ tool_name }
+      let argument = ExportArguments.from_string time_frame in
+      let command = "export" in
+      let timew_command = TimewCommand.create command (Some argument) in
+      Timew.TimewCommand.exec timew_command)
+  with
+  | exn -> Error ("Failed to parse arguments: " ^ Exn.to_string exn)
+;;
+
+let get_tool_name json =
+  let open Yojson.Safe.Util in
+  json |> member "params" |> member "name" |> to_string
+;;
+
+let handle_tool_call client_message ~tool_handlers =
+  let json = Yojson.Safe.from_string client_message in
+  let id = Server.get_id json in
+  let tool_name = get_tool_name json in
+  match List.Assoc.find tool_handlers tool_name ~equal:String.equal with
+  | Some handler ->
+    (match handler client_message with
+     | Ok response_data_string ->
+       let response_content = [ { type_ = "text"; text = response_data_string } ] in
+       let server_response : server_tool_call_response =
+         { jsonrpc = rpc_version; id; result = { content = response_content } }
+       in
+       Ok (yojson_of_server_tool_call_response server_response)
+     | Error err_string ->
+       Error
+         { Mcp_error.code = ServerError
+         ; message = "Internal server error while retrieving the data: " ^ err_string
+         })
+  | None ->
+    Error { Mcp_error.code = MethodNotFound; message = "Unknown tool: " ^ tool_name }
 ;;
 
 let handle_initialize client_message ~server_info ~capabilities =
@@ -70,7 +80,11 @@ let handle_tools_list client_message =
 ;;
 
 let on_initialize_handler client_message ~server_info ~capabilities =
-  try Ok (handle_initialize client_message ~server_info ~capabilities |> Yojson.Safe.to_string) with
+  try
+    Ok
+      (handle_initialize client_message ~server_info ~capabilities
+       |> Yojson.Safe.to_string)
+  with
   | exn ->
     Error
       (Mcp_error.create
@@ -89,9 +103,9 @@ let on_toollist_handler client_message =
          ("Failed to parse tools/list request: " ^ Exn.to_string exn))
 ;;
 
-let on_toolcall_handler ~tool_function client_message =
+let on_toolcall_handler_wrapper ~tool_handlers client_message =
   try
-    match handle_tool_call client_message ~tool_function with
+    match handle_tool_call client_message ~tool_handlers with
     | Ok response_yojson -> Ok (Yojson.Safe.to_string response_yojson)
     | Error e -> Error e
   with
@@ -116,7 +130,7 @@ let%expect_test "get method" =
       "version": "1.0.0"
     }
   }
-  }|}
+    }|}
     ; {|{
   "jsonrpc": "2.0",
   "method": "notifications/initialized"
@@ -281,12 +295,12 @@ let%expect_test "parse tool" =
 let%expect_test "server handle_request" =
   let server_info = { name = "timew-mcp"; version = "1.0.0" } in
   let capabilities = { tools = { list_changed = true }; resources = () } in
-  let tool_function () = Ok "test tool response" in
+  let tool_handlers = [ ("summaryTime", fun _ -> Ok "test tool response") ] in
   let handlers : Server.handlers =
     { on_initialize = on_initialize_handler
     ; on_notification = on_notification_handler
     ; on_toollist = on_toollist_handler
-    ; on_toolcall = on_toolcall_handler ~tool_function
+    ; on_toolcall = on_toolcall_handler_wrapper ~tool_handlers
     }
   in
   let server = Server.create ~handlers ~server_info ~server_capabilities:capabilities in
@@ -403,24 +417,14 @@ let%expect_test "server handle_request" =
       "jsonrpc": "2.0",
       "id": 3,
       "result": {
-        "content": [
-          {
-            "type": "text",
-            "text": "The summary returned this JSON: test tool response"
-          }
-        ]
+        "content": [ { "type": "text", "text": "test tool response" } ]
       }
     }
     {
       "jsonrpc": "2.0",
       "id": 4,
       "result": {
-        "content": [
-          {
-            "type": "text",
-            "text": "The summary returned this JSON: test tool response"
-          }
-        ]
+        "content": [ { "type": "text", "text": "test tool response" } ]
       }
     }
     {
@@ -433,3 +437,4 @@ let%expect_test "server handle_request" =
     }
     |}]
 ;;
+

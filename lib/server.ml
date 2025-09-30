@@ -8,7 +8,9 @@ type handlers =
       -> (string, Mcp_error.t) Result.t
   ; on_notification : string -> (string, Mcp_error.t) Result.t
   ; on_toollist : string -> (string, Mcp_error.t) Result.t
-  ; on_toolcall : string -> (string, Mcp_error.t) Result.t
+  ; on_toolcall :
+      string
+      -> (string, Mcp_error.t) Result.t
   }
 
 type t =

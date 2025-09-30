@@ -2,6 +2,56 @@
 open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 open Core
 
+module ExportArguments = struct
+  type t =
+    | Day
+    | Week
+
+  let to_string = function
+    | Day -> ":day"
+    | Week -> ":week"
+  ;;
+
+  let from_string = function
+    | "day" -> Day
+    | "week" -> Week
+    | ":day" -> Day
+    | ":week" -> Week
+    | s -> failwith (Printf.sprintf "invalid argument %s" s)
+  ;;
+end
+
+module TimewCommand = struct
+  type t =
+    { command : string
+    ; args : ExportArguments.t option
+    }
+
+  let base_command = "timew"
+  let create command args = { command; args }
+
+  let exec t =
+    let ic =
+      match t.args with
+      | Some a ->
+        let sa = ExportArguments.to_string a in
+        Core_unix.open_process_in (String.concat ~sep:" " [ base_command; t.command; sa ])
+      | None ->
+        Core_unix.open_process_in (String.concat ~sep:" " [ base_command; t.command ])
+    in
+    let outstring =
+      "The json response from the timew export is: \n" ^ In_channel.input_all ic
+    in
+    match Core_unix.close_process_in ic with
+    | Error (`Exit_non_zero n) ->
+      Error (Format.sprintf "timew export failed with exit code %d\n" n)
+    | Error (`Signal n) ->
+      Error
+        (Format.sprintf "timew export failed with exit code %s\n" (Signal.to_string n))
+    | Ok _ -> Ok outstring
+  ;;
+end
+
 type summary =
   { id : int
   ; start : string
@@ -11,18 +61,6 @@ type summary =
 [@@deriving show, yojson, yojson_fields]
 
 type summary_list = summary list [@@deriving yojson, show]
-
-let get_summary () =
-  let ic = Core_unix.open_process_in "timew export" in
-  let output_string = In_channel.input_all ic in
-  (* Close the process and check exit status *)
-  match Core_unix.close_process_in ic with
-  | Error (`Exit_non_zero n) ->
-    Error (Format.sprintf "timew export failed with exit code %d\n" n)
-  | Error (`Signal n) ->
-    Error (Format.sprintf "timew export failed with exit code %s\n" (Signal.to_string n))
-  | Ok _ -> Ok output_string
-;;
 
 let%expect_test "read summary" =
   let input =
