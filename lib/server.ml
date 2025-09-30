@@ -1,4 +1,4 @@
-open Types
+open Mcp_types
 
 type handlers =
   { on_initialize :

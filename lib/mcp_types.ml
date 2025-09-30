@@ -136,6 +136,8 @@ type client_tool_call_request =
   }
 [@@deriving yojson, yojson_fields, show]
 
+
+
 type tool_call_content =
   { type_ : string [@key "type"]
   ; text : string

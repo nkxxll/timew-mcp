@@ -8,9 +8,9 @@
  (inline_tests))
 
 (library
- (name types)
- (public_name timew-mcp.types)
- (modules types)
+ (name mcp_types)
+ (public_name timew-mcp.mcp_types)
+ (modules mcp_types)
  (libraries yojson mcp_error)
  (preprocess
   (pps ppx_deriving.show ppx_yojson_conv)))
@@ -19,7 +19,7 @@
  (name server)
  (public_name timew-mcp.server)
  (modules server)
- (libraries yojson types core mcp_error))
+ (libraries yojson mcp_types core mcp_error))
 
 (library
  (name mcp_error)
@@ -37,7 +37,7 @@
 (library
  (name timew_mcp)
  (modules timew_mcp)
- (libraries timew composition core ppx_inline_test types mcp_error server)
+ (libraries mcp_types timew composition core ppx_inline_test mcp_error server)
  (preprocess
   (pps ppx_deriving.show ppx_yojson_conv ppx_expect))
  (inline_tests))

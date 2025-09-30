@@ -1,4 +1,4 @@
-open Types
+open Mcp_types
 open Core
 
 let handle_tool_call client_message ~tool_function =
@@ -244,31 +244,29 @@ let%expect_test "parse tool" =
   show_server_tool_discovery_response server_res |> Stdio.print_endline;
   [%expect
     {|
-    { Timew_mcp.Types.jsonrpc = "2.0"; id = 2;
+    { Mcp_types.jsonrpc = "2.0"; id = 2;
       result =
-      { Timew_mcp.Types.tools =
-        [{ Timew_mcp.Types.name = "calculator_arithmetic";
-           title = "Calculator";
+      { Mcp_types.tools =
+        [{ Mcp_types.name = "calculator_arithmetic"; title = "Calculator";
            description =
            "Perform mathematical calculations including basic arithmetic, trigonometric functions, and algebraic operations";
            input_schema =
-           { Timew_mcp.Types.type_ = "object";
+           { Mcp_types.type_ = "object";
              properties =
-             { Timew_mcp.Types.summary_time =
-               { Timew_mcp.Types.type_ = "string"; enum = ["day"; "week"];
+             { Mcp_types.summary_time =
+               { Mcp_types.type_ = "string"; enum = ["day"; "week"];
                  description = "this is a desc"; default = "week" }
                };
              required = ["summaryTime"] }
            };
-          { Timew_mcp.Types.name = "weather_current";
-            title = "Weather Information";
+          { Mcp_types.name = "weather_current"; title = "Weather Information";
             description =
             "Get current weather information for any location worldwide";
             input_schema =
-            { Timew_mcp.Types.type_ = "object";
+            { Mcp_types.type_ = "object";
               properties =
-              { Timew_mcp.Types.summary_time =
-                { Timew_mcp.Types.type_ = "string"; enum = ["day"; "week"];
+              { Mcp_types.summary_time =
+                { Mcp_types.type_ = "string"; enum = ["day"; "week"];
                   description = "some things that should be here";
                   default = "week" }
                 };
@@ -347,7 +345,7 @@ let%expect_test "server handle_request" =
   List.iter messages ~f:(fun msg_string ->
     match Server.handle_request server msg_string with
     | Ok response_json_string ->
-      if response_json_string = ""
+      if String.equal response_json_string ""
       then Stdio.print_endline "Notification, no response"
       else
         Yojson.Safe.from_string response_json_string
